@@ -6,6 +6,7 @@ import pickle
 import sys
 import time
 import warnings
+from contextlib import contextmanager
 from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
@@ -590,6 +591,28 @@ def full_sketch(
 recursive_sketch = full_sketch
 
 
+@contextmanager
+def suppress_sklearn_classification_target_warning():
+    """Suppress sklearn's high-cardinality classification-target heuristic.
+
+    OpenML tasks and recursive partition nodes can legitimately have many
+    classes relative to the local sample count.  The warning is useful for
+    catching accidental use of a classifier on continuous targets, but these
+    helpers operate on explicitly selected classification tasks.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=(
+                r"The number of unique classes is greater than 50% of the "
+                r"number of samples\..*"
+            ),
+            category=UserWarning,
+            module=r"sklearn\.svm\._base",
+        )
+        yield
+
+
 def timed_fit_transform(transformer, X, y):
     start_wall = time.perf_counter()
     start_cpu = time.process_time()
@@ -602,16 +625,7 @@ def serialized_size_mb(value):
 
 
 def classification_score(model, X_train, y_train, X_test, y_test):
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            'ignore',
-            message=(
-                r'The number of unique classes is greater than 50% of the '
-                r'number of samples\..*'
-            ),
-            category=UserWarning,
-            module=r'sklearn\.svm\._base',
-        )
+    with suppress_sklearn_classification_target_warning():
         model.fit(X_train, y_train)
     prediction = model.predict(X_test)
     return float(accuracy_score(y_test, prediction)), int(np.count_nonzero(prediction != y_test))

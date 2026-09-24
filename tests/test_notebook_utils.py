@@ -1,9 +1,11 @@
 import importlib.util
+import warnings
 from pathlib import Path
 import sys
 
 import numpy as np
 import pytest
+from sklearn.svm import SVC
 
 
 _UTILS_PATH = Path(__file__).parents[1] / "notebooks" / "_hypothesis_utils.py"
@@ -38,6 +40,22 @@ def test_openml_numeric_split_imputes_missing_values_from_training_rows():
     assert preprocessor is not None
     assert np.isfinite(X_train).all()
     assert np.isfinite(X_test).all()
+
+
+def test_sklearn_high_cardinality_classification_warning_is_scoped_out():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(40, 3))
+    y = np.arange(40)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with _MODULE.suppress_sklearn_classification_target_warning():
+            SVC().fit(X, y)
+
+    assert not any(
+        "The number of unique classes is greater than 50%" in str(warning.message)
+        for warning in caught
+    )
 
 
 @pytest.mark.parametrize("n_features", [0, -1, 1.5])

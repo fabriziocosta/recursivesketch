@@ -22,6 +22,7 @@ from _hypothesis_utils import (
     classification_score,
     make_datasets,
     openml_classification_split,
+    suppress_sklearn_classification_target_warning,
     timed_fit_transform,
 )
 from recursivesketch import RecursiveSketchClassifier
@@ -223,11 +224,12 @@ def run_search(
         ):
             model_seed = search_seed + candidate_id * 10000 + block['repetition_id']
             sketch = make_search_estimator(params, seed=model_seed, n_jobs=n_jobs)
-            X_train_view, fit_wall, fit_cpu = timed_fit_transform(
-                sketch,
-                block['X_train'],
-                block['y_train'],
-            )
+            with suppress_sklearn_classification_target_warning():
+                X_train_view, fit_wall, fit_cpu = timed_fit_transform(
+                    sketch,
+                    block['X_train'],
+                    block['y_train'],
+                )
             accuracy, errors = classification_score(
                 make_output_classifier(
                     params['classifier'],
@@ -286,11 +288,27 @@ def run_search(
     }
 
 
-def best_configuration(search_results, parameter_ranges):
-    """Return the best candidate and its parameter dictionary."""
+def best_configuration(search_results, parameter_ranges, top_selected=1):
+    """Return a selected ranked candidate and its parameter dictionary.
 
-    best_params = search_results.iloc[0][list(parameter_ranges)].to_dict()
-    best_candidate_id = int(search_results.iloc[0]['candidate_id'])
+    ``top_selected`` is one-based: ``1`` selects the best candidate,
+    ``2`` selects the second-best candidate, and so on.
+    """
+
+    if (
+        isinstance(top_selected, bool)
+        or not isinstance(top_selected, (int, np.integer))
+        or top_selected < 1
+        or top_selected > len(search_results)
+    ):
+        raise ValueError(
+            "top_selected must be a positive rank no greater than the number "
+            "of search results"
+        )
+
+    selected = search_results.iloc[int(top_selected) - 1]
+    best_params = selected[list(parameter_ranges)].to_dict()
+    best_candidate_id = int(selected['candidate_id'])
     return best_candidate_id, best_params
 
 
@@ -655,10 +673,13 @@ def plot_pairwise_performance(search_results, parameter_ranges, best_params):
                 )
             else:
                 axis.margins(y=0.08)
-            axis.set_xlabel(
-                x_parameter if row == 0 and row != column else ''
-            )
-            axis.set_title(y_parameter if row == column else '')
+            if row == 0:
+                axis.set_xlabel(x_parameter)
+                axis.xaxis.set_label_position('top')
+                axis.xaxis.labelpad = 8
+            else:
+                axis.set_xlabel('')
+            axis.set_title(y_parameter if row == column and row != 0 else '')
             axis.grid(alpha=0.2)
             axis.set_box_aspect(1)
 

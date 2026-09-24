@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+import warnings
+from contextlib import contextmanager
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -37,6 +39,22 @@ from recursive_partition import (  # noqa: E402
     RecursivePartitionClassifier,
 )
 from recursivesketch import RecursiveSketchClassifier  # noqa: E402
+
+
+@contextmanager
+def suppress_sklearn_classification_target_warning():
+    """Suppress sklearn's high-cardinality classification-target heuristic."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=(
+                r"The number of unique classes is greater than 50% of the "
+                r"number of samples\..*"
+            ),
+            category=UserWarning,
+            module=r"sklearn\.svm\._base",
+        )
+        yield
 
 
 DATASETS = (
@@ -491,7 +509,8 @@ def run_experiment(
             dimension_ratio=dimension_ratio,
             random_state=random_state,
         )
-        model.fit(X_train, y_train)
+        with suppress_sklearn_classification_target_warning():
+            model.fit(X_train, y_train)
         fitted_models[dataset_name] = model
         accuracy = model.score(X_test, y_test)
         sketch = model.steps[0][1]
